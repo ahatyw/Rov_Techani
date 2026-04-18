@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rov_TechAni Command Center</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Rajdhani:wght@500;700&display=swap');
+        
+        body { background-color: #0b0f19; color: #00f0ff; font-family: 'Rajdhani', sans-serif; display: flex; flex-direction: column; align-items: center; margin: 0; padding: 20px; box-sizing: border-box; }
+        h1 { font-family: 'Orbitron', sans-serif; text-shadow: 0 0 10px #00f0ff; margin-bottom: 30px; letter-spacing: 2px;}
+        
+        .dashboard { display: grid; grid-template-columns: 1fr 1fr; gap: 25px; max-width: 1100px; width: 100%; }
+        
+        .panel { background: rgba(16, 24, 39, 0.8); padding: 25px; border-radius: 12px; border: 1px solid #1e3a8a; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5); backdrop-filter: blur(4px); }
+        h3 { font-family: 'Orbitron', sans-serif; text-align: center; margin-top: 0; color: #e2e8f0; border-bottom: 1px solid #1e3a8a; padding-bottom: 15px; letter-spacing: 1px;}
+        
+        .cam-container { grid-column: span 2; display: flex; justify-content: center; background: #000; border-radius: 12px; overflow: hidden; height: 480px; border: 2px solid #00f0ff; position: relative; box-shadow: 0 0 20px rgba(0, 240, 255, 0.2);}
+        img { width: 100%; height: 100%; object-fit: cover; }
+        .cam-overlay { position: absolute; top: 10px; left: 10px; color: #ff003c; font-family: 'Orbitron', sans-serif; font-weight: bold; background: rgba(0,0,0,0.5); padding: 5px 10px; border-radius: 4px; border: 1px solid #ff003c;}
+
+        /* Controls Area */
+        .slider-group { margin-bottom: 20px; font-size: 18px; font-weight: 700; color: #94a3b8;}
+        .slider-group span { display: inline-block; width: 90px; color: #00f0ff;}
+        input[type=range] { width: calc(100% - 100px); cursor: pointer; accent-color: #00f0ff; }
+        
+        .d-pad { display: grid; grid-template-columns: repeat(3, 70px); gap: 15px; justify-content: center; margin-top: 20px;}
+        .btn { padding: 20px; background: #0f172a; color: #00f0ff; border: 2px solid #00f0ff; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 20px; font-family: 'Orbitron', sans-serif; transition: 0.2s; box-shadow: inset 0 0 10px rgba(0, 240, 255, 0.1);}
+        .btn:active { background: #00f0ff; color: #000; box-shadow: 0 0 15px #00f0ff; }
+        
+        .mode-toggle { width: 100%; padding: 18px; margin-top: 30px; background: #1e1e1e; font-size: 20px; font-family: 'Orbitron', sans-serif; cursor: pointer; border: 2px solid #ff003c; color: #ff003c; border-radius: 8px; transition: 0.3s;}
+        .mode-toggle:hover { background: rgba(255, 0, 60, 0.1); }
+        .mode-toggle.auto { border-color: #00ff00; color: #00ff00; background: rgba(0, 255, 0, 0.1); box-shadow: 0 0 15px rgba(0, 255, 0, 0.3);}
+        
+        .disabled { opacity: 0.3; pointer-events: none; }
+    </style>
+</head>
+<body>
+    <h1>TECHANI ROVER COMMAND</h1>
+    <div class="dashboard">
+        <div class="cam-container">
+            <div class="cam-overlay">REC // LIVE</div>
+            <img src="{{ cam_url }}" alt="ESP32-CAM Feed Offline or Loading...">
+        </div>
+
+        <div class="panel" id="armPanel">
+            <h3>Robotic Arm Telemetry</h3>
+            <div class="slider-group"><span>Base</span> <input type="range" id="b" min="0" max="180" value="90" oninput="sendArm()"></div>
+            <div class="slider-group"><span>Shoulder</span> <input type="range" id="s" min="0" max="180" value="90" oninput="sendArm()"></div>
+            <div class="slider-group"><span>Elbow</span> <input type="range" id="e" min="0" max="180" value="90" oninput="sendArm()"></div>
+            <div class="slider-group"><span>Claw</span> <input type="range" id="c" min="0" max="90" value="10" oninput="sendArm()"></div>
+        </div>
+
+        <div class="panel">
+            <h3>Locomotion System</h3>
+            <div class="d-pad" id="drivePanel">
+                <div></div>
+                <button class="btn" onmousedown="drive(200, 200)" onmouseup="drive(0,0)" ontouchstart="drive(200, 200)" ontouchend="drive(0,0)">W</button>
+                <div></div>
+                <button class="btn" onmousedown="drive(-150, 150)" onmouseup="drive(0,0)" ontouchstart="drive(-150, 150)" ontouchend="drive(0,0)">A</button>
+                <button class="btn" onmousedown="drive(-200, -200)" onmouseup="drive(0,0)" ontouchstart="drive(-200, -200)" ontouchend="drive(0,0)">S</button>
+                <button class="btn" onmousedown="drive(150, -150)" onmouseup="drive(0,0)" ontouchstart="drive(150, -150)" ontouchend="drive(0,0)">D</button>
+            </div>
+            <button class="mode-toggle" id="modeBtn" onclick="toggleMode()">MODE: MANUAL OVERRIDE</button>
+        </div>
+    </div>
+
+    <script>
+        let autoMode = false;
+
+        function sendData(data) {
+            fetch('/cmd', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            }).catch(err => console.error("Network Error:", err));
+        }
+
+        function drive(left, right) {
+            if (autoMode) return;
+            sendData({ type: 'MOTOR', left: left, right: right });
+        }
+
+        function sendArm() {
+            if (autoMode) return;
+            sendData({
+                type: 'ARM',
+                b: document.getElementById('b').value,
+                s: document.getElementById('s').value,
+                e: document.getElementById('e').value,
+                c: document.getElementById('c').value
+            });
+        }
+
+        function toggleMode() {
+            autoMode = !autoMode;
+            let btn = document.getElementById('modeBtn');
+            let armPanel = document.getElementById('armPanel');
+            let drivePanel = document.getElementById('drivePanel');
+            
+            if (autoMode) {
+                btn.className = "mode-toggle auto";
+                btn.innerText = "SYS: AUTO-AVOIDANCE ACTIVE";
+                armPanel.classList.add('disabled');
+                drivePanel.classList.add('disabled');
+            } else {
+                btn.className = "mode-toggle";
+                btn.innerText = "MODE: MANUAL OVERRIDE";
+                armPanel.classList.remove('disabled');
+                drivePanel.classList.remove('disabled');
+            }
+            sendData({ type: 'MODE', mode: autoMode ? 'A' : 'M' });
+        }
+    </script>
+</body>
+</html>
